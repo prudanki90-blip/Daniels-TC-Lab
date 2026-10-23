@@ -1,4 +1,5 @@
 package com.tclab.android
+import com.tclab.android.feature.culture.screens.CultureWorkspaceScreen
 import com.tclab.android.feature.calculator.screens.CalculatorScreen
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -159,17 +160,13 @@ private fun TCLabApp() {
                 )
             )
 
-            4 -> SectionScreen(
-                padding = innerPadding,
-                title = "Culture Records",
-                description = labSections[3].description,
-                details = listOf(
-                    "Culture batches",
-                    "Plant and protocol identity",
-                    "Batch history",
-                    "Observation records"
-                )
-            )
+         4 -> Box(
+    modifier = Modifier
+        .fillMaxSize()
+        .padding(innerPadding)
+) {
+    CultureWorkspaceScreen()
+} 
 
             5 -> SectionScreen(
                 padding = innerPadding,
