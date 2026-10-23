@@ -123,21 +123,17 @@ private fun TCLabApp() {
                 padding = innerPadding,
                 onSectionSelected = { selectedSection = it }
             )
+            1 -> Box(
+    modifier = Modifier
+        .fillMaxSize()
+        .padding(innerPadding)
+) {
+    CalculatorScreen()
+}
+            
+            
 
-            1 -> SectionScreen(
-                padding = innerPadding,
-                title = "Calculator",
-                description = labSections[0].description,
-                details = listOf(
-                    "Solution dilution",
-                    "Molarity to mass",
-                    "Percentage solutions",
-                    "Media recipe scaling",
-                    "Serial dilution",
-                    "Culture vessel planning",
-                    "Batch cost estimates"
-                )
-            )
+           
 
             2 -> Box(
                 modifier = Modifier
