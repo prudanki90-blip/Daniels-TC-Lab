@@ -532,7 +532,7 @@ val editingCells = remember { mutableStateListOf<String>() }
                                 ) {
                                     row.cells.forEachIndexed { index, value ->
                                         Text(
-                                            "${currentTable.columns.getOrElse(index) { "Column ${index + 1} }}: $value"
+                                            "${currentTable.columns.getOrElse(index) { "Column ${index + 1}" }}: $value"
                                         )
                                     }
                                     OutlinedButton(onClick = {
