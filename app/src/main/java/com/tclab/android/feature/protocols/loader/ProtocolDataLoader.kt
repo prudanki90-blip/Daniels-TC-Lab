@@ -1,27 +1,31 @@
-
 package com.tclab.android.feature.protocols.loader
 
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.text.PDFTextStripper
 import java.io.IOException
 import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
 
 /**
- * Loads supported local documents for the standalone Protocols feature.
+ * Loads local documents for the standalone Protocols feature.
  *
- * This class reads source documents only. It does not extract scientific
- * fields, save protocols, or depend on another TC Lab feature.
+ * Supports text documents and PDFs containing selectable text.
+ * Scanned PDFs require OCR and are not processed by this loader.
  */
 class ProtocolDataLoader(context: Context) {
 
+    private val appContext = context.applicationContext
     private val resolver: ContentResolver =
-        context.applicationContext.contentResolver
+        appContext.contentResolver
 
     companion object {
-        private const val MAX_TEXT_SIZE_BYTES = 10L * 1024L * 1024L
+        private const val MAX_FILE_SIZE_BYTES =
+            10L * 1024L * 1024L
 
         private val supportedTextExtensions = setOf(
             "txt",
@@ -52,10 +56,7 @@ class ProtocolDataLoader(context: Context) {
     }
 
     /**
-     * Reads a document selected through Android's document picker.
-     *
-     * Unsupported formats return a clear warning instead of being
-     * interpreted as plain text.
+     * Loads a selected document and returns its readable text.
      */
     fun load(uri: Uri): ProtocolLoadResult {
         val fileName = getDisplayName(uri)
@@ -72,71 +73,39 @@ class ProtocolDataLoader(context: Context) {
             .substringAfterLast('.', missingDelimiterValue = "")
             .lowercase()
 
-        if (!isSupportedTextFile(extension, mimeType)) {
+        val isPdf = extension == "pdf" ||
+            mimeType == "application/pdf"
+
+        if (!isPdf && !isSupportedTextFile(extension, mimeType)) {
             return ProtocolLoadResult(
                 success = false,
                 fileName = fileName,
                 mimeType = mimeType,
                 text = "",
                 warnings = listOf(
-                    "This file format is not supported by the current " +
-                        "text loader. No document content was extracted."
+                    "This file format is not supported yet. " +
+                        "No document content was extracted."
                 ),
                 error = "Unsupported document format."
             )
         }
 
         return try {
-            resolver.openAssetFileDescriptor(uri, "r")?.use { descriptor ->
-                val declaredLength = descriptor.length
+            val declaredLength = getDeclaredLength(uri)
 
-                if (
-                    declaredLength > MAX_TEXT_SIZE_BYTES
-                ) {
-                    return ProtocolLoadResult(
-                        success = false,
-                        fileName = fileName,
-                        mimeType = mimeType,
-                        text = "",
-                        warnings = emptyList(),
-                        error = "The file exceeds the 10 MB text-import limit."
-                    )
-                }
+            if (declaredLength > MAX_FILE_SIZE_BYTES) {
+                return failure(
+                    fileName,
+                    mimeType,
+                    "The file exceeds the 10 MB import limit."
+                )
             }
 
-            val text = resolver.openInputStream(uri)?.use { input ->
-                val output = StringBuilder()
-                val buffer = CharArray(8192)
-                var totalBytes = 0L
-
-                InputStreamReader(
-                    input,
-                    StandardCharsets.UTF_8
-                ).use { reader ->
-                    while (true) {
-                        val charsRead = reader.read(buffer)
-
-                        if (charsRead < 0) {
-                            break
-                        }
-
-                        totalBytes +=
-                            charsRead.toLong() * 4L
-
-                        if (totalBytes > MAX_TEXT_SIZE_BYTES) {
-                            throw IOException(
-                                "The file exceeds the 10 MB text-import limit."
-                            )
-                        }
-
-                        output.append(buffer, 0, charsRead)
-                    }
-                }
-
-                output.toString()
-            } ?: throw IOException(
-                "Android could not open this document."
-            )
+            val text = if (isPdf) {
+                extractPdfText(uri)
+            } else {
+                readTextDocument(uri)
+            }
 
             if (text.isBlank()) {
                 ProtocolLoadResult(
@@ -144,16 +113,31 @@ class ProtocolDataLoader(context: Context) {
                     fileName = fileName,
                     mimeType = mimeType,
                     text = "",
-                    warnings = listOf(
-                        "The selected document contains no readable text."
-                    ),
-                    error = "The document is empty or unreadable."
+                    warnings = if (isPdf) {
+                        listOf(
+                            "No selectable text was found. " +
+                                "This may be a scanned PDF that needs OCR."
+                        )
+                    } else {
+                        listOf(
+                            "The selected document contains no readable text."
+                        )
+                    },
+                    error = if (isPdf) {
+                        "No readable text was extracted from the PDF."
+                    } else {
+                        "The document is empty or unreadable."
+                    }
                 )
             } else {
                 ProtocolLoadResult(
                     success = true,
                     fileName = fileName,
-                    mimeType = mimeType,
+                    mimeType = if (isPdf) {
+                        "application/pdf"
+                    } else {
+                        mimeType
+                    },
                     text = text,
                     warnings = emptyList(),
                     error = null
@@ -169,14 +153,94 @@ class ProtocolDataLoader(context: Context) {
             failure(
                 fileName,
                 mimeType,
-                exception.message ?: "The document could not be read."
+                exception.message
+                    ?: "The document could not be read."
             )
         } catch (exception: Exception) {
             failure(
                 fileName,
                 mimeType,
-                "An unexpected error occurred while reading the document."
+                "The document could not be processed. " +
+                    "Check that it is a valid, unencrypted file."
             )
+        }
+    }
+
+    /**
+     * Extracts selectable text from a PDF.
+     */
+    private fun extractPdfText(uri: Uri): String {
+        PDFBoxResourceLoader.init(appContext)
+
+        val input = resolver.openInputStream(uri)
+            ?: throw IOException(
+                "Android could not open this PDF."
+            )
+
+        input.use { stream ->
+            PDDocument.load(stream).use { document ->
+                if (document.isEncrypted) {
+                    throw IOException(
+                        "Password-protected PDFs are not supported."
+                    )
+                }
+
+                return PDFTextStripper().getText(document)
+            }
+        }
+    }
+
+    /**
+     * Reads supported text-based documents as UTF-8.
+     */
+    private fun readTextDocument(uri: Uri): String {
+        val input = resolver.openInputStream(uri)
+            ?: throw IOException(
+                "Android could not open this document."
+            )
+
+        input.use { stream ->
+            InputStreamReader(
+                stream,
+                StandardCharsets.UTF_8
+            ).use { reader ->
+                val output = StringBuilder()
+                val buffer = CharArray(8192)
+                var estimatedBytes = 0L
+
+                while (true) {
+                    val charsRead = reader.read(buffer)
+
+                    if (charsRead < 0) {
+                        break
+                    }
+
+                    estimatedBytes += charsRead.toLong() * 4L
+
+                    if (estimatedBytes > MAX_FILE_SIZE_BYTES) {
+                        throw IOException(
+                            "The file exceeds the 10 MB import limit."
+                        )
+                    }
+
+                    output.append(buffer, 0, charsRead)
+                }
+
+                return output.toString()
+            }
+        }
+    }
+
+    private fun getDeclaredLength(uri: Uri): Long {
+        return try {
+            resolver.openAssetFileDescriptor(uri, "r")
+                ?.use { descriptor ->
+                    descriptor.length
+                } ?: -1L
+        } catch (exception: SecurityException) {
+            throw exception
+        } catch (_: Exception) {
+            -1L
         }
     }
 
@@ -184,17 +248,8 @@ class ProtocolDataLoader(context: Context) {
         extension: String,
         mimeType: String
     ): Boolean {
-        if (extension in supportedTextExtensions) {
-            return true
-        }
-
-        if (mimeType in supportedTextMimeTypes) {
-            return true
-        }
-
-        // Some providers do not supply MIME types.
-        return mimeType.isBlank() &&
-            extension in supportedTextExtensions
+        return extension in supportedTextExtensions ||
+            mimeType in supportedTextMimeTypes
     }
 
     private fun getDisplayName(uri: Uri): String? {
@@ -207,15 +262,11 @@ class ProtocolDataLoader(context: Context) {
                 null
             )?.use { cursor ->
                 if (cursor.moveToFirst()) {
-                    val columnIndex = cursor.getColumnIndex(
+                    val index = cursor.getColumnIndex(
                         OpenableColumns.DISPLAY_NAME
                     )
 
-                    if (columnIndex >= 0) {
-                        cursor.getString(columnIndex)
-                    } else {
-                        null
-                    }
+                    if (index >= 0) cursor.getString(index) else null
                 } else {
                     null
                 }
@@ -243,9 +294,6 @@ class ProtocolDataLoader(context: Context) {
 
 /**
  * Result of loading one local document.
- *
- * The original text is kept separate from extracted protocol fields
- * so that later extraction and review can use the source content.
  */
 data class ProtocolLoadResult(
     val success: Boolean,
@@ -255,3 +303,5 @@ data class ProtocolLoadResult(
     val warnings: List<String>,
     val error: String?
 )
+
+
