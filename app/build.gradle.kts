@@ -43,6 +43,7 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.8.5")
     // JSON serialization for the standalone Protocols feature.
     implementation("com.google.code.gson:gson:2.11.0")
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
