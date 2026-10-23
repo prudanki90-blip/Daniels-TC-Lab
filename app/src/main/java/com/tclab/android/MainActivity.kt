@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.tclab.android.feature.protocols.screens.ProtocolLoaderScreen
 
 private data class LabSection(
     val title: String,
@@ -137,18 +139,17 @@ private fun TCLabApp() {
                 )
             )
 
-            2 -> SectionScreen(
-                padding = innerPadding,
-                title = "Protocol Library",
-                description = labSections[1].description,
-                details = listOf(
-                    "Browse protocols",
-                    "Record plant and species identity",
-                    "Record explant and medium",
-                    "Track stages and durations",
-                    "Store source citations"
+            2 -> Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            ) {
+                ProtocolLoaderScreen(
+                    onBack = {
+                        selectedSection = 0
+                    }
                 )
-            )
+            }
 
             3 -> SectionScreen(
                 padding = innerPadding,
